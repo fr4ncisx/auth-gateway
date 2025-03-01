@@ -13,22 +13,21 @@ import org.springframework.web.bind.annotation.GetMapping;
 @RequestMapping("/user")
 public class UserController {
 
-    @PreAuthorize(value = "ROLE_ADMIN")
-    @GetMapping("/user-admin")
-    public String adminController() {
-        return "Hi admin!";
+    @GetMapping("/public")
+    public String publicEndpoint() {
+        return "Este endpoint es público";
     }
 
-    @PreAuthorize(value = "ROLE_EMPLOYEE")
-    @GetMapping("/user-employee")
-    public String employeeController() {
-        return "Hi employee!";
+    @PreAuthorize("hasRole('USER') or hasRole('ADMIN')")
+    @GetMapping("/user")
+    public String userEndpoint() {
+        return "Este endpoint es accesible para usuarios con rol USER o ADMIN";
     }
 
-    @PreAuthorize(value = "ROLE_READER")
-    @GetMapping("/user-reader")
-    public String readerController() {
-        return "Hi reader!";
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/admin")
+    public String adminEndpoint() {
+        return "Este endpoint es accesible solo para ADMIN";
     }
 
 }
