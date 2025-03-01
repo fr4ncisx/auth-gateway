@@ -5,24 +5,26 @@ import com.server.oauth2.domain.model.User;
 import com.server.oauth2.infrastructure.repository.UserRepository;
 import com.server.oauth2.infrastructure.security.dto.request.AuthLoginDTO;
 import com.server.oauth2.infrastructure.security.dto.request.AuthRegisterDTO;
+import com.server.oauth2.infrastructure.security.dto.response.SessionStatusDTO;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
-
 @Service
-public class AuthService {
+public class AuthService implements UserDetailsService {
 
     private final UserRepository userRepository;
     private final BCryptPasswordEncoder passwordEncoder;
@@ -32,66 +34,70 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    public User registerUser(AuthRegisterDTO registerDTO) {
-        checksIfUserExists(registerDTO.getUsername());
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado"));
+
+        return org.springframework.security.core.userdetails.User
+                .withUsername(user.getUsername())
+                .password(user.getPassword())
+                .authorities(user.getRole().name())
+                .build();
+    }
+
+    public ResponseEntity<?> registerUser(AuthRegisterDTO registerDTO) {
+        if (registerDTO.getUsername().isBlank() || registerDTO.getPassword().isBlank()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Usuario y contraseña son obligatorios");
+        }
+
+        userRepository.findByUsername(registerDTO.getUsername()).ifPresent(user -> {
+            throw new IllegalStateException("El usuario ya existe: " + registerDTO.getUsername());
+        });
+
         User user = User.builder()
                 .username(registerDTO.getUsername())
                 .password(passwordEncoder.encode(registerDTO.getPassword()))
                 .role(validateRole(registerDTO.getRole()))
                 .build();
-        return userRepository.save(user);
-    }
+        
+        userRepository.save(user);
 
-    private boolean checksIfUserExists(String username) {
-        if (userRepository.findByUsername(username).isPresent()) {
-            throw new IllegalStateException("El usuario ya existe: " + username);
-        }
-        return false;
+        return ResponseEntity.status(HttpStatus.CREATED).body("Usuario registrado correctamente");
     }
 
     private Role validateRole(String role) {
-        for (Role r : Role.values()) {
-            if (r.name().equalsIgnoreCase(role)) {
-                return r;
-            }
+        try {
+            return Role.valueOf(role.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Role no válido: " + role);
         }
-        throw new IllegalArgumentException("Role no válido: " + role);
     }
 
     public ResponseEntity<?> loginUser(AuthLoginDTO loginDTO, HttpServletRequest request) {
-        Optional<User> optionalUser = userRepository.findByUsername(loginDTO.getUsername());
-
-        if (optionalUser.isEmpty()) {
-            return ResponseEntity.status(401).body("Usuario no encontrado");
+        HttpSession existingSession = request.getSession(false);
+        if (existingSession != null) {
+            existingSession.invalidate();
         }
 
-        User user = optionalUser.get();
-        if (!passwordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
-            return ResponseEntity.status(401).body("Credenciales incorrectas");
+        HttpSession session = request.getSession(true);
+
+        UserDetails userDetails = loadUserByUsername(loginDTO.getUsername());
+
+        if (!passwordEncoder.matches(loginDTO.getPassword(), userDetails.getPassword())) {
+            throw new BadCredentialsException("Credenciales inválidas");
         }
 
-        // Here we want to delete old session and get a new one
-        HttpSession oldSession = request.getSession(false);
-        if (oldSession != null) {
-            oldSession.invalidate();
-        }
+        Authentication authToken = new UsernamePasswordAuthenticationToken(
+                userDetails, null, userDetails.getAuthorities());
 
-        // Crear nueva sesión
-        HttpSession newSession = request.getSession(true);
-
-        // Crear autenticación
-        Authentication authentication = new UsernamePasswordAuthenticationToken(user.getUsername(), null,
-                user.getAuthorities());
-
-        // Guardar autenticación en SecurityContextHolder
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(authentication);
+        securityContext.setAuthentication(authToken);
         SecurityContextHolder.setContext(securityContext);
 
-        // Asociar SecurityContext a la sesión
-        newSession.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, securityContext);
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, securityContext);
 
-        return ResponseEntity.ok("Login exitoso, nueva sesión ID: " + newSession.getId());
+        return ResponseEntity.ok("Login exitoso" + " ID: " + session.getId());
     }
 
     public ResponseEntity<?> logoutUser(HttpServletRequest request) {
@@ -109,11 +115,18 @@ public class AuthService {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Sesión no encontrada");
         }
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        SecurityContext securityContext = (SecurityContext) session.getAttribute(
+                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+
+        if (securityContext == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("No se ha encontrado una sesión activa");
+        }
+
+        Authentication auth = securityContext.getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Usuario no autenticado");
         }
 
-        return ResponseEntity.ok("Sesión activa para: " + auth.getName());
+        return ResponseEntity.ok(new SessionStatusDTO(auth.getName(), auth.getAuthorities()));
     }
 }
