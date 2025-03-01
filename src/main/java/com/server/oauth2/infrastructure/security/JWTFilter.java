@@ -1,4 +1,4 @@
-package com.server.oauth2.infra.security;
+package com.server.oauth2.infrastructure.security;
 
 import java.io.IOException;
 

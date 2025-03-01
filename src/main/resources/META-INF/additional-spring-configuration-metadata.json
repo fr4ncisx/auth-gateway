@@ -1,0 +1,12 @@
+{"properties": [
+  {
+    "name": "secret.key",
+    "type": "java.lang.String",
+    "description": "Used to create the algorithm based on this secret key"
+  },
+  {
+    "name": "token.expiration",
+    "type": "java.lang.String",
+    "description": "Expiration of the Json Web Token in minutes"
+  }
+]}
