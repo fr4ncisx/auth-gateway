@@ -1,32 +1,42 @@
 package com.server.oauth2.infrastructure.security.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import com.server.oauth2.infrastructure.security.dto.request.AuthLoginDTO;
+import com.server.oauth2.infrastructure.security.dto.request.AuthRegisterDTO;
 import com.server.oauth2.infrastructure.security.service.AuthService;
 
-import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/auth")
 public class AuthController {
 
-    @Autowired
-    private AuthService authService;
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody AuthRegisterDTO registerDTO) {
+        authService.registerUser(registerDTO);
+        return ResponseEntity.ok("Usuario registrado correctamente");
+    }
 
     @PostMapping("/login")
-    public ResponseEntity<?> loginUser(@Valid @RequestBody AuthLoginDTO userLogin) {
-        return authService.loginUser(userLogin);
+    public ResponseEntity<?> login(@RequestBody AuthLoginDTO loginDTO, HttpServletRequest request) {
+        return authService.loginUser(loginDTO, request);
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logoutUser() {
-        return authService.logout();
+    public ResponseEntity<?> logout(HttpServletRequest request) {
+        return authService.logoutUser(request);
     }
 
+    @GetMapping("/session")
+    public ResponseEntity<?> getSessionStatus(HttpServletRequest request) {
+        return authService.getSessionStatus(request);
+    }
 }
